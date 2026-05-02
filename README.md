@@ -1,57 +1,56 @@
 # Weather SDK
 
-A clean Python SDK for the [OpenWeatherMap API](https://openweathermap.org/api) with three endpoints and in-memory CRUD storage.
+A Python SDK for the [OpenWeatherMap API](https://openweathermap.org/api) with three endpoints and in-memory CRUD storage.
 
 ## Architecture
 
 ```
 weather_sdk/
 ├── api/
-│   └── client.py          # Thin HTTP wrapper (httpx)
+│   └── client.py       # HTTP client (httpx) — fetching only
 ├── storage/
-│   └── repository.py      # Generic InMemoryRepository[T]
+│   └── repository.py   # Generic InMemoryRepository[T]
 ├── service/
-│   └── weather_service.py # Orchestration façade
-├── models.py              # Frozen dataclasses (domain types)
-└── exceptions.py          # Custom exception hierarchy
+│   └── weather_cache.py  # WeatherCache — stores and reads data by city
+├── models.py           # Frozen dataclasses (domain types)
+└── exceptions.py       # Custom exception hierarchy
 ```
-
-### Layers
 
 | Layer | Responsibility |
 |-------|---------------|
 | **API** | HTTP calls, JSON → dataclass parsing, error mapping |
 | **Storage** | Generic CRUD over an in-memory `dict` |
-| **Service** | Composes API + Storage; public interface for callers |
+| **Cache** | Typed store for weather data; key normalisation; eviction |
 
 ## Covered Endpoints
 
-| Method | OWM endpoint | Description |
-|--------|-------------|-------------|
-| `fetch_location` | `GET /geo/1.0/direct` | Forward geocoding |
-| `fetch_current_weather` | `GET /data/2.5/weather` | Current weather |
-| `fetch_air_quality` | `GET /data/2.5/air_pollution` | Air quality index |
+| Client method | OWM endpoint | Description |
+|--------------|-------------|-------------|
+| `geocode` | `GET /geo/1.0/direct` | Forward geocoding |
+| `current_weather` | `GET /data/2.5/weather` | Current weather |
+| `air_quality` | `GET /data/2.5/air_pollution` | Air quality index |
 
 ## Quick Start
 
 ```python
-from weather_sdk import WeatherService
+from weather_sdk import WeatherAPIClient, WeatherCache
 
-with WeatherService(api_key="YOUR_KEY") as svc:
-    # Fetch (network) and store
-    weather = svc.fetch_current_weather("London")
-    aqi     = svc.fetch_air_quality("London")
+cache = WeatherCache()
 
-    print(f"{weather.city}: {weather.temp_celsius}°C, AQI {aqi.aqi}")
+with WeatherAPIClient(api_key="YOUR_KEY") as client:
+    geo = client.geocode("London")
+    cache.put_location("London", geo)
 
-    # Read from cache (no network)
-    cached = svc.get_current_weather("London")
+    weather = client.current_weather(geo.coordinates)
+    cache.put_current_weather("London", weather)
 
-    # See what's cached
-    print(svc.list_cached_cities())
+    aqi = client.air_quality(geo.coordinates)
+    cache.put_air_quality("London", aqi)
 
-    # Remove from cache
-    svc.evict("London")
+# Read from cache — no network calls
+print(cache.get_current_weather("London").temp_celsius)
+print(cache.list_cities())
+cache.evict("London")
 ```
 
 ## Installation

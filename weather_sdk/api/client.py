@@ -1,6 +1,6 @@
 """Low-level HTTP client for the OpenWeatherMap API."""
 
-from typing import Any
+from typing import Any, Self
 
 import httpx
 
@@ -114,6 +114,12 @@ class WeatherAPIClient:
     def close(self) -> None:
         """Close the underlying HTTP connection pool."""
         self._http.close()
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()
 
     def _get(self, url: str, url_params: dict[str, Any]) -> Any:
         full_params = {**url_params, "appid": self._api_key}

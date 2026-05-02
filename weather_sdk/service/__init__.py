@@ -1,5 +1,5 @@
-"""Service layer — orchestrates API calls and persists results."""
+"""In-memory cache layer for weather data."""
 
-from weather_sdk.service.weather_service import WeatherService
+from weather_sdk.service.weather_cache import WeatherCache
 
-__all__ = ["WeatherService"]
+__all__ = ["WeatherCache"]
