@@ -1,5 +1,5 @@
-"""HTTP client layer — thin wrappers over OpenWeatherMap endpoints."""
+"""HTTP client layer — one sub-client per OWM service area."""
 
-from weather_sdk.api.client import WeatherAPIClient
+from weather_sdk.api.client import OWMClient
 
-__all__ = ["WeatherAPIClient"]
+__all__ = ["OWMClient"]

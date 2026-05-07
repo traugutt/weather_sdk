@@ -1,4 +1,4 @@
-"""Low-level HTTP client for the OpenWeatherMap API."""
+"""OpenWeatherMap API clients organised by service area."""
 
 from typing import Any, Self
 
@@ -68,22 +68,33 @@ def _parse_air(air_dict: dict[str, Any]) -> AirQuality:
     )
 
 
-class WeatherAPIClient:
-    """Thin HTTP wrapper around three OpenWeatherMap endpoints.
-
-    Endpoints covered:
-    - ``/geo/1.0/direct``       — forward geocoding
-    - ``/data/2.5/weather``     — current weather
-    - ``/data/2.5/air_pollution`` — air quality index
-    """
+class _HTTPSession:
+    """Shared HTTP connection and auth — injected into each sub-client."""
 
     def __init__(self, api_key: str) -> None:
         self._api_key = api_key
         self._http = httpx.Client(timeout=10)
 
+    def fetch(self, url: str, url_params: dict[str, Any]) -> Any:
+        full_params = {**url_params, "appid": self._api_key}
+        response = self._http.get(url, params=full_params)
+        if response.status_code != 200:
+            raise APIError(response.status_code, response.text)
+        return response.json()
+
+    def close(self) -> None:
+        self._http.close()
+
+
+class GeoClient:
+    """Forward geocoding via the OWM Geocoding API."""
+
+    def __init__(self, http: _HTTPSession) -> None:
+        self._http = http
+
     def geocode(self, city: str, limit: int = 1) -> GeoLocation:
         """Return the first geocoding result for *city*."""
-        raw = self._get(
+        raw = self._http.fetch(
             f"{_GEO_BASE}/direct",
             url_params={"q": city, "limit": limit},
         )
@@ -91,9 +102,15 @@ class WeatherAPIClient:
             raise APIError(404, f"City not found: {city}")
         return _parse_geo(raw[0])
 
-    def current_weather(self, coordinates: Coordinates) -> CurrentWeather:
-        """Return current weather for the given *coordinates*."""
-        raw = self._get(
+
+class WeatherClient:
+    """Current weather via the OWM Current Weather API."""
+
+    def __init__(self, http: _HTTPSession) -> None:
+        self._http = http
+
+    def current(self, coordinates: Coordinates) -> CurrentWeather:
+        raw = self._http.fetch(
             f"{_BASE}/data/2.5/weather",
             url_params={
                 "lat": coordinates.lat,
@@ -103,27 +120,47 @@ class WeatherAPIClient:
         )
         return _parse_weather(raw)
 
-    def air_quality(self, coordinates: Coordinates) -> AirQuality:
-        """Return the current air quality index for *coordinates*."""
-        raw = self._get(
+
+class AirClient:
+    """Air quality via the OWM Air Pollution API."""
+
+    def __init__(self, http: _HTTPSession) -> None:
+        self._http = http
+
+    def quality(self, coordinates: Coordinates) -> AirQuality:
+        raw = self._http.fetch(
             f"{_BASE}/data/2.5/air_pollution",
             url_params={"lat": coordinates.lat, "lon": coordinates.lon},
         )
         return _parse_air(raw)
 
+
+class OWMClient:
+    """Entry point for the OpenWeatherMap SDK.
+
+    Composes focused sub-clients, one per OWM service area, sharing a
+    single HTTP session. Adding a new service area means adding a new
+    sub-client class — this class stays unchanged.
+
+    Usage::
+
+        with OWMClient(api_key="...") as client:
+            geo     = client.geo.geocode("London")
+            weather = client.weather.current(geo.coordinates)
+            aqi     = client.air.quality(geo.coordinates)
+    """
+
+    def __init__(self, api_key: str) -> None:
+        self._session = _HTTPSession(api_key)
+        self.geo = GeoClient(self._session)
+        self.weather = WeatherClient(self._session)
+        self.air = AirClient(self._session)
+
     def close(self) -> None:
-        """Close the underlying HTTP connection pool."""
-        self._http.close()
+        self._session.close()
 
     def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *_: object) -> None:
         self.close()
-
-    def _get(self, url: str, url_params: dict[str, Any]) -> Any:
-        full_params = {**url_params, "appid": self._api_key}
-        response = self._http.get(url, params=full_params)
-        if response.status_code != 200:
-            raise APIError(response.status_code, response.text)
-        return response.json()
